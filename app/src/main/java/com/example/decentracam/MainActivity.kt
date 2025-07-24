@@ -12,10 +12,16 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import com.solana.mobilewalletadapter.clientlib.*
+import android.net.Uri
+
+//import com.funkatronics.encoders.Base58
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 
 class MainActivity : ComponentActivity() {
-
+    //REMEMBER TO KEEP WALLET OPEN IN BACKGROUND BEFORE SIGNING
     private lateinit var outputDirectory: File
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -23,6 +29,56 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         outputDirectory = getOutputDirectory()
+            val solanaUri = Uri.parse("https://raw.githubusercontent.com/solana-labs/wallet-adapter/main")
+    val iconUri = Uri.parse("packages/wallet-adapter/example/favicon.png")
+    val identityName = "DecentraCam"
+
+         //Construct the client
+    val walletAdapter = MobileWalletAdapter(connectionIdentity = ConnectionIdentity(
+        identityUri = solanaUri,
+        iconUri = iconUri,
+        identityName = identityName
+    ))
+
+
+
+    val sender = ActivityResultSender(this)
+        fun connectAndSign(message: ByteArray) {
+        lifecycleScope.launch {
+            val result = walletAdapter.transact(sender) { authResult ->
+                // signMessagesDetached takes: messages[], addresses[]
+                signMessagesDetached(
+                    arrayOf(message),
+                    arrayOf(authResult.accounts.first().publicKey)
+                )
+            }
+
+            when (result) {
+                is TransactionResult.Success -> {
+                    val signedBytes = result.successPayload
+                        ?.messages
+                        ?.firstOrNull()
+                        ?.signatures
+                        ?.firstOrNull()
+
+                    if (signedBytes != null) {
+                        //val sig = Base58.encodeToString(signedBytes)
+                        Log.d("WALLET", "Signed message (Base58):")//$sig")
+                    } else {
+                        Log.e("WALLET", "Signing succeeded but no signature returned")
+                    }
+                }
+
+                is TransactionResult.NoWalletFound -> {
+                    Log.e("WALLET", "No compatible wallet installed")
+                }
+
+                is TransactionResult.Failure -> {
+                    Log.e("WALLET", "Wallet error: ${result.e.message}")
+                }
+            }
+        }
+    }
 
 
         val requestPermission = registerForActivityResult(
@@ -49,11 +105,22 @@ class MainActivity : ComponentActivity() {
                         Log.d("HASH", "SHA-256: $hash")
                         println("Image hash = $hash")
                         // plug in wallet next
+
+
+                        lifecycleScope.launch {
+                            connectAndSign(hash.hexToBytes())
+                        }
+                        // plug in wallet next
+
+
+
                     }
                 )
             }
         }
     }
+    fun String.hexToBytes(): ByteArray =
+        chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
     private fun getOutputDirectory(): File {
         val mediaDir = externalMediaDirs.firstOrNull()?.let {
