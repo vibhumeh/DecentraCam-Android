@@ -15,10 +15,12 @@ import androidx.core.content.ContextCompat
 import com.solana.mobilewalletadapter.clientlib.*
 import android.net.Uri
 
+
 //import com.funkatronics.encoders.Base58
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
+private var authToken: String? = null
 
 class MainActivity : ComponentActivity() {
     //REMEMBER TO KEEP WALLET OPEN IN BACKGROUND BEFORE SIGNING
@@ -26,23 +28,43 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         enableEdgeToEdge()
-
         outputDirectory = getOutputDirectory()
-            val solanaUri = Uri.parse("https://raw.githubusercontent.com/solana-labs/wallet-adapter/main")
-    val iconUri = Uri.parse("packages/wallet-adapter/example/favicon.png")
-    val identityName = "DecentraCam"
+        val solanaUri = Uri.parse("https://raw.githubusercontent.com/solana-labs/wallet-adapter/main")
+        val iconUri = Uri.parse("packages/wallet-adapter/example/favicon.png")
+        val identityName = "DecentraCam"
 
-         //Construct the client
-    val walletAdapter = MobileWalletAdapter(connectionIdentity = ConnectionIdentity(
-        identityUri = solanaUri,
-        iconUri = iconUri,
-        identityName = identityName
-    ))
+        //Construct the client
+        val walletAdapter = MobileWalletAdapter(connectionIdentity = ConnectionIdentity(
+            identityUri = solanaUri,
+            iconUri = iconUri,
+            identityName = identityName
+        ))
 
 
 
-    val sender = ActivityResultSender(this)
+        val sender = ActivityResultSender(this)
+
+//        fun connectOnly() {
+//            lifecycleScope.launch {
+//                val result = walletAdapter.connect(sender)
+//
+//                when (result) {
+//                    is TransactionResult.Success -> {
+//                        val account = result.authResult.accounts.first()
+//                        authToken = result.authResult.authToken // 🔥 Save it globally
+//                        Log.d("WALLET", "Connected: ${account.publicKey}, Token: $authToken")
+//                    }
+//                    else -> Log.e("WALLET", "Connect failed")
+//                }
+//            }
+//        }
+        connectOnly(lifecycleScope, walletAdapter, sender)
+
+
+        Log.d("WALLET", "Connected 2, Token: $authToken")
+
         fun connectAndSign(message: ByteArray) {
         lifecycleScope.launch {
             val result = walletAdapter.transact(sender) { authResult ->

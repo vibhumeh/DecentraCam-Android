@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.23"
+
 }
 
 android {
@@ -68,4 +70,19 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.2")
     //Solana-Wallet
     implementation("com.solanamobile:mobile-wallet-adapter-clientlib-ktx:2.0.3")
+    implementation("com.solanamobile:rpc-core:0.2.7")
+    implementation("com.solanamobile:web3-solana:0.2.5")
+
+    //implementation ("com.solana:rpc-core-okiodriver:0.2.8") // easiest
+    implementation ("io.ktor:ktor-client-core:2.3.4")
+    implementation ("io.ktor:ktor-client-cio:2.3.4") // for Android/JVM engine
+    implementation ("io.ktor:ktor-client-content-negotiation:2.3.4")
+    implementation ("io.ktor:ktor-serialization-kotlinx-json:2.3.4")
+    implementation("com.solanamobile:rpc-core:0.2.6")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
+
+
+
+
 }
