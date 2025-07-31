@@ -40,7 +40,9 @@ class MainActivity : ComponentActivity() {
             identityUri = solanaUri,
             iconUri = iconUri,
             identityName = identityName
-        ))
+        ),
+
+        )
 
 
 
@@ -60,9 +62,15 @@ class MainActivity : ComponentActivity() {
 //                }
 //            }
 //        }
-        connectOnly(lifecycleScope, walletAdapter, sender)
-
-
+       // connectOnly(lifecycleScope, walletAdapter, sender)
+        lifecycleScope.launch {
+            try {
+                val blockhash = getLatestBlockhash()
+                Log.d("RPC", "Latest Blockhash: $blockhash")
+            } catch (e: Exception) {
+                Log.e("RPC", "Failed to fetch blockhash: ${e.message}")
+            }
+        }
         Log.d("WALLET", "Connected 2, Token: $authToken")
 
         fun connectAndSign(message: ByteArray) {
@@ -130,7 +138,8 @@ class MainActivity : ComponentActivity() {
 
 
                         lifecycleScope.launch {
-                            connectAndSign(hash.hexToBytes())
+                            initialiseAccount(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender)
+                            //connectAndSign(hash.hexToBytes())
                         }
                         // plug in wallet next
 

@@ -80,6 +80,12 @@ dependencies {
     implementation ("io.ktor:ktor-serialization-kotlinx-json:2.3.4")
     implementation("com.solanamobile:rpc-core:0.2.6")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("io.github.funkatronics:multimult:0.2.3")
+    implementation("com.ditchoom:buffer:1.4.2") // or latest
+    implementation("io.github.funkatronics:kborsh:0.1.1")
+
+
+
 
 
 
