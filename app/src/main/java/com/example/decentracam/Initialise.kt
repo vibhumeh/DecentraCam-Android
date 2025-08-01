@@ -12,21 +12,73 @@ import com.solana.rpccore.Rpc20Response
 import com.solana.serialization.AnchorInstructionSerializer
 import com.solana.transaction.*
 import kotlinx.coroutines.launch
-
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import com.funkatronics.encoders.Base58
 import java.util.*
+import org.json.JSONArray
+import android.content.Context
 
-/* ---------- constants you’ll actually change ---------- */
+//import com.funkatronics.encoders.Hex
+import com.ionspin.kotlin.crypto.signature.Signature
+import com.ionspin.kotlin.crypto.signature.SignatureKeyPair
+import com.solana.signer.Ed25519Signer
+//loading privatekey
+fun loadKeyFromJsonRaw(context: Context, rawId: Int): UByteArray {
+    val json = context.resources.openRawResource(rawId)
+        .bufferedReader().use { it.readText().trim() }
+
+    val jsonArray = JSONArray(json.toString())
+    val byteList = ByteArray(jsonArray.length()) {
+        jsonArray.getInt(it).toByte()
+    }
+
+    return byteList.toUByteArray()
+}
+
+//system program to verify signature
+//private val ED25519_PROGRAM_ID =
+//    SolanaPublicKey.from("Ed25519SigVerify111111111111111111111111111")
+
+private fun ULong.toLe8(): ByteArray {
+    var v = this
+    return ByteArray(8) { i ->
+        val b = (v and 0xFFu).toByte()
+        v = v shr 8
+        b
+    }
+}
+
+/* ---------- Anchor arg wrappers ---------- */
+
+@Serializable
+object Args_initialize
+
+@Serializable
+data class Args_verifyEd25519Instruction(
+    val message: ByteArray,
+    val signature: ByteArray
+)
+
+@Serializable
+data class Args_storeHash(
+    val hashId: ULong
+)//first ID=1
+
+/* ---------- constants to actually change ---------- */
 
 private const val RPC_URL = "https://api.devnet.solana.com"
 private const val PROGRAM_ID_STR = "EbRPnJaaBXkbur5nPB9BTfSf3w8FbiYnJQDAgmp78Esx"  //won't be found. will fail.        // your on‑chain program ID
 private const val IDENTITY_URI = "https://raw.githubusercontent.com/solana-labs/wallet-adapter/main"
 private const val ICON_URI     = "packages/wallet-adapter/example/favicon.png"
-private const val APP_NAME     = "Decentracam"    // or whatever
+private const val APP_NAME     = "Decentracam"
+
+
+
+
+
 
 /* ---------- helper to fetch a recent blockhash ---------- */
 
@@ -47,10 +99,82 @@ private suspend fun Rpc20Driver.latestBlockhash(): String {
         ?: error("RPC returned null – no blockhash available")
 
 }
+//TRANSACTION BUILDERS
 
+suspend fun buildVerifyIx(
+    feePayer: SolanaPublicKey,
+    counterPda: SolanaPublicKey,
+    message: ByteArray,
+    signature: ByteArray
+): TransactionInstruction {
+
+    /* Anchor-encode args */
+    val data = Borsh.encodeToByteArray(
+        AnchorInstructionSerializer("verifyEd25519Instruction"),
+        Args_verifyEd25519Instruction(message, signature)
+    )
+
+    val programId = SolanaPublicKey.from(PROGRAM_ID_STR)
+    val instructionSysvar =
+        SolanaPublicKey.from("Sysvar1nstructions1111111111111111111111111")
+
+    return TransactionInstruction(
+        programId,
+        listOf(
+            AccountMeta(feePayer, true, true),      // signer
+            AccountMeta(instructionSysvar, false, false),
+            AccountMeta(counterPda, false, true)    // counter
+        ),
+        data
+    )
+}
+
+
+
+
+
+suspend fun buildStoreHashIx(
+    feePayer: SolanaPublicKey,
+    counterPda: SolanaPublicKey,
+    hashId: ULong
+): TransactionInstruction {
+
+    val programId = SolanaPublicKey.from(PROGRAM_ID_STR)
+
+    /* derive hashes PDA = ["hash", signer, hashId] */
+    val hashesPda = ProgramDerivedAddress.find(
+        listOf(
+            "hash".encodeToByteArray(),
+            feePayer.bytes,
+            hashId.toLe8()
+        ),
+        programId
+    ).getOrThrow()
+
+    val data = Borsh.encodeToByteArray(
+        AnchorInstructionSerializer("storeHash"),
+        Args_storeHash(hashId)
+    )
+
+    return TransactionInstruction(
+        programId,
+        listOf(
+            AccountMeta(feePayer,  true,  true),   // signer
+            AccountMeta(hashesPda, false, true),  // init account
+            AccountMeta(counterPda, false, true), // counter
+            AccountMeta(SystemProgram.PROGRAM_ID, false, false)
+        ),
+        data
+    )
+}
+
+
+
+
+////FINAL FUNCTIONS
 /* ---------- do the initialize in one go ---------- */
 @Serializable
-object NoArgs // top-level or inside a class, not inside a function
+object NoArgs //Not inside a function
 
 fun initialiseAccount(
     lifecycleScope: LifecycleCoroutineScope,
@@ -139,4 +263,52 @@ fun initialiseAccount(
             else -> error("wallet flow aborted")
         }
     }
+}
+suspend fun verify_sig(message: ByteArray,
+    context: Context,
+    lifecycleScope: LifecycleCoroutineScope,
+               wallet: MobileWalletAdapter,
+               sender: ActivityResultSender){
+lifecycleScope.launch {
+    val auth = wallet.connect(sender) as? TransactionResult.Success
+        ?: error("wallet connect failed / cancelled")
+    val secretKey = loadKeyFromJsonRaw(context, R.raw.auth_privkey_temp)
+    val publicKey = loadKeyFromJsonRaw(context, R.raw.auth_pubkey_temp)
+    val sig = Signature.sign(message.toUByteArray(), secretKey.toUByteArray())
+    val edIx = buildEd25519Ix(message, sig.toByteArray(),publicKey.toByteArray())
+
+    val blockhash = rpc.latestBlockhash()
+
+    val msgEd = Message.Builder()
+        .addInstruction(edIx)
+        .setRecentBlockhash(blockhash)
+        //.setFeePayer(feePayer)
+        .build()
+
+    val txEd = Transaction(msgEd).serialize()
+
+    val resultEd = wallet.transact(sender) {
+        reauthorize(
+            identityUri = Uri.parse(IDENTITY_URI),
+            iconUri = Uri.parse(ICON_URI),
+            identityName = APP_NAME,
+            authToken = auth.authResult.authToken
+        )
+        signAndSendTransactions(arrayOf(txEd))
+    }
+
+    when (resultEd) {
+        is TransactionResult.Success -> Log.d("ED25519", "Signature: $resultEd")
+        is TransactionResult.Failure -> {
+            Log.e("ED25519", "Failed: ${resultEd.e.message}")
+            return@launch
+        }
+
+        else -> error("Wallet flow aborted")
+    }
+}
+
+
+
+
 }
