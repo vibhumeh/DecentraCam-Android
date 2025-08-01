@@ -1,5 +1,6 @@
 package com.example.decentracam
 
+import com.solana.programs.SystemProgram
 import com.solana.publickey.SolanaPublicKey
 import com.solana.transaction.AccountMeta
 import com.solana.transaction.TransactionInstruction
@@ -19,7 +20,8 @@ private val ED25519_PROG_ID =
 fun buildEd25519Ix(
     message: ByteArray,
     signature: ByteArray,
-    pubkey: ByteArray
+    pubkey: ByteArray,
+    feePayer:SolanaPublicKey
 ): TransactionInstruction {
     require(signature.size == 64) { "signature must be 64 bytes" }
     require(pubkey.size == 32)    { "pubkey must be 32 bytes" }
@@ -52,7 +54,10 @@ fun buildEd25519Ix(
     /* --- 3. build TransactionInstruction --------------------------------- */
     return TransactionInstruction(
         ED25519_PROG_ID,
-        emptyList<AccountMeta>(),   // the native program takes no accounts
+        //emptyList<AccountMeta>(),   // the native program takes no accounts
+        listOf(
+            AccountMeta(feePayer,    true,  true),   // signer
+        ),
         data
     )
 }

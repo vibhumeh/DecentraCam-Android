@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 Log.e("RPC", "Failed to fetch blockhash: ${e.message}")
             }
+
         }
         Log.d("WALLET", "Connected 2, Token: $authToken")
 

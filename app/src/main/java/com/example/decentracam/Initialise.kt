@@ -17,14 +17,13 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import com.funkatronics.encoders.Base58
+
 import java.util.*
 import org.json.JSONArray
 import android.content.Context
-
-//import com.funkatronics.encoders.Hex
-import com.ionspin.kotlin.crypto.signature.Signature
-import com.ionspin.kotlin.crypto.signature.SignatureKeyPair
+import diglol.crypto.Ed25519
 import com.solana.signer.Ed25519Signer
+
 //loading privatekey
 fun loadKeyFromJsonRaw(context: Context, rawId: Int): UByteArray {
     val json = context.resources.openRawResource(rawId)
@@ -188,24 +187,6 @@ fun initialiseAccount(
         val auth = wallet.connect(sender) as? TransactionResult.Success
             ?: error("wallet connect failed / cancelled")
         val feePayer = SolanaPublicKey.from(Base58.encodeToString( auth.authResult.accounts.first().publicKey))
-
-        /* 2. Derive the PDA your program expects: seeds = ["counter", feePayer] */
-       // val programId = SolanaPublicKey.from(PROGRAM_ID_STR)
-//        val seeds = listOf(
-//            "counter".encodeToByteArray(),
-//            feePayer.bytes                   // second seed = user pubkey
-//        )
-//        //val counterPda = ProgramDerivedAddress.find(seeds, programId).getOrThrow()
-
-        /* 3. Build Anchor instruction data (8‑byte discr only, no args) */
-       // data object NoArgs// empty args marker
-//        val initData = Borsh.encodeToByteArray(
-//            AnchorInstructionSerializer<NoArgs>("initialize"),
-//            NoArgs
-//        )
-        // If your instruction is called something else, swap the string above.
-
-        /* 4. Compose the instruction */
 // --- 0.  Program + PDA as before ---
         val programId  = SolanaPublicKey.from(PROGRAM_ID_STR)
         val counterPda = ProgramDerivedAddress.find(
@@ -272,10 +253,16 @@ fun verify_sig(message: ByteArray,
 lifecycleScope.launch {
     val auth = wallet.connect(sender) as? TransactionResult.Success
         ?: error("wallet connect failed / cancelled")
+    val feePayer = SolanaPublicKey.from(Base58.encodeToString( auth.authResult.accounts.first().publicKey))
     val secretKey = loadKeyFromJsonRaw(context, R.raw.auth_privkey_temp)
     val publicKey = loadKeyFromJsonRaw(context, R.raw.auth_pubkey_temp)
-    val sig = Signature.sign(message.toUByteArray(), secretKey.toUByteArray())
-    val edIx = buildEd25519Ix(message, sig.toByteArray(),publicKey.toByteArray())
+    val keyPair=Ed25519.generateKeyPair(secretKey.toByteArray())
+    val signer = object : Ed25519Signer() {
+        override val publicKey: ByteArray get() = keyPair.publicKey
+        override suspend fun signPayload(payload: ByteArray): ByteArray = Ed25519.sign(keyPair, payload)
+    }
+    val sig = signer.signPayload(message)
+    val edIx = buildEd25519Ix(message, sig,publicKey.toByteArray(),feePayer=feePayer)
 
     val blockhash = rpc.latestBlockhash()
 

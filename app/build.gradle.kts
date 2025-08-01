@@ -67,7 +67,7 @@ dependencies {
     implementation("androidx.camera:camera-view:$cameraxVersion")
     implementation("androidx.compose.material:material-icons-extended")
     //Crypto
-    implementation("com.ionspin.kotlin:multiplatform-crypto-libsodium-bindings:0.9.2")
+    implementation("com.diglol.crypto:crypto:0.2.0")
     // Coroutines / Lifecycle
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.2")
     //Solana-Wallet
