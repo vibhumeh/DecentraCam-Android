@@ -264,7 +264,7 @@ fun initialiseAccount(
         }
     }
 }
-suspend fun verify_sig(message: ByteArray,
+fun verify_sig(message: ByteArray,
     context: Context,
     lifecycleScope: LifecycleCoroutineScope,
                wallet: MobileWalletAdapter,
