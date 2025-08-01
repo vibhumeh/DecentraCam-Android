@@ -6,57 +6,63 @@ import com.solana.transaction.AccountMeta
 import com.solana.transaction.TransactionInstruction
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.min
 
 private val ED25519_PROG_ID =
     SolanaPublicKey.from("Ed25519SigVerify111111111111111111111111111")
 
 /**
- * Build a Solana ed25519-signature-verify instruction (1 sig).
+ * Kotlin equivalent of web3.js Ed25519Program.createInstructionWithPublicKey
+ * Layout: [u8 numSigs][u8 padding][14-byte offsets][32B pubkey][64B sig]
+ * All offsets are u16 LE and relative to the start of instruction data.
  *
- * @param message   Bytes that were signed
- * @param signature 64-byte detached sig (R || S)
- * @param pubkey    32-byte signer pubkey
+ * instructionIndex:
+ *   null -> 0xFFFF (means “this instruction”, same as web3.js default)
+ *   else -> explicit index
  */
-fun buildEd25519Ix(
+fun buildEd25519IxWithPublicKey(
+    publicKey: ByteArray,
     message: ByteArray,
     signature: ByteArray,
-    pubkey: ByteArray,
-    feePayer:SolanaPublicKey
+    feePayer:SolanaPublicKey,
+    instructionIndex: Int? = null
 ): TransactionInstruction {
+    require(publicKey.size == 32) { "publicKey must be 32 bytes" }
     require(signature.size == 64) { "signature must be 64 bytes" }
-    require(pubkey.size == 32)    { "pubkey must be 32 bytes" }
-    require(message.size <= UShort.MAX_VALUE.toInt()) { "message too long" }
+    require(message.size <= 0xFFFF) { "message too long for u16 length" }
 
-    /* --- 1. offsets ------------------------------------------------------- */
-    val header = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
-    val sigOffset      = 16                                          // DATA_START
-    val pubkeyOffset   = sigOffset + signature.size                  // 80
-    val msgOffset      = pubkeyOffset + pubkey.size                  // 112
-    val msgSize        = message.size
+    val headerLen = 16 // ED25519_INSTRUCTION_LAYOUT.span in web3.js
+    val publicKeyOffset   = headerLen
+    val signatureOffset   = publicKeyOffset + publicKey.size         // 16 + 32 = 48
+    val messageDataOffset = signatureOffset + signature.size         // 48 + 64 = 112
+    val messageDataSize   = message.size
 
-    header.put(1)                // numSignatures
-    header.put(0)                // padding
-    header.putShort(sigOffset.toShort())
-    header.putShort(0)           // signature_instruction_index (this ix)
-    header.putShort(pubkeyOffset.toShort())
-    header.putShort(0)           // pubkey_instruction_index
-    header.putShort(msgOffset.toShort())
-    header.putShort(msgSize.toShort())
-    header.putShort(0)           // message_instruction_index
+    val idxShort: Short = ((instructionIndex ?: 0xFFFF) and 0xFFFF).toShort()
 
-    /* --- 2. full instruction data ---------------------------------------- */
-    val data = ByteArray(16 + signature.size + pubkey.size + msgSize)
-    System.arraycopy(header.array(),   0, data, 0, 16)
-    System.arraycopy(signature,        0, data, sigOffset,     signature.size)
-    System.arraycopy(pubkey,           0, data, pubkeyOffset,  pubkey.size)
-    System.arraycopy(message,          0, data, msgOffset,     msgSize)
+    // Build header (little endian)
+    val header = ByteBuffer.allocate(headerLen).order(ByteOrder.LITTLE_ENDIAN)
+    header.put(1)                         // numSignatures
+    header.put(0)                         // padding
+    header.putShort(signatureOffset.toShort())
+    header.putShort(idxShort)             // signature_instruction_index
+    header.putShort(publicKeyOffset.toShort())
+    header.putShort(idxShort)             // public_key_instruction_index
+    header.putShort(messageDataOffset.toShort())
+    header.putShort(messageDataSize.toShort())
+    header.putShort(idxShort)             // message_instruction_index
 
-    /* --- 3. build TransactionInstruction --------------------------------- */
+    // Concatenate: header | pubkey | signature | message
+    val data = ByteArray(headerLen + 32 + 64 + messageDataSize)
+    System.arraycopy(header.array(), 0, data, 0, headerLen)
+    System.arraycopy(publicKey,      0, data, publicKeyOffset, publicKey.size)
+    System.arraycopy(signature,      0, data, signatureOffset, signature.size)
+    System.arraycopy(message,        0, data, messageDataOffset, messageDataSize)
+
     return TransactionInstruction(
         ED25519_PROG_ID,
-        //emptyList<AccountMeta>(),   // the native program takes no accounts
+        //emptyList<AccountMeta>(),   // native program uses no accounts
         listOf(
-            AccountMeta(feePayer,    true,  true),   // signer
+            AccountMeta(feePayer,    true,  true),   // signer)
         ),
         data
     )

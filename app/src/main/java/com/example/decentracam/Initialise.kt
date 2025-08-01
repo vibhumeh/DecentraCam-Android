@@ -254,15 +254,18 @@ lifecycleScope.launch {
     val auth = wallet.connect(sender) as? TransactionResult.Success
         ?: error("wallet connect failed / cancelled")
     val feePayer = SolanaPublicKey.from(Base58.encodeToString( auth.authResult.accounts.first().publicKey))
-    val secretKey = loadKeyFromJsonRaw(context, R.raw.auth_privkey_temp)
+    val secretKey = loadKeyFromJsonRaw(context, R.raw.auth_privkey_temp).toByteArray().sliceArray(0 until 32)//extract seed from privatekey
+
     val publicKey = loadKeyFromJsonRaw(context, R.raw.auth_pubkey_temp)
-    val keyPair=Ed25519.generateKeyPair(secretKey.toByteArray())
+    val keyPair=Ed25519.generateKeyPair(secretKey)
     val signer = object : Ed25519Signer() {
         override val publicKey: ByteArray get() = keyPair.publicKey
         override suspend fun signPayload(payload: ByteArray): ByteArray = Ed25519.sign(keyPair, payload)
     }
     val sig = signer.signPayload(message)
-    val edIx = buildEd25519Ix(message, sig,publicKey.toByteArray(),feePayer=feePayer)
+    //Log.d("KEY_SIZE", "publicKey size: ${final_publicKey.size}")
+
+    val edIx = buildEd25519IxWithPublicKey(publicKey = publicKey.toByteArray(), message = message, signature = sig,feePayer=feePayer)
 
     val blockhash = rpc.latestBlockhash()
 
