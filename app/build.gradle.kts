@@ -85,6 +85,10 @@ dependencies {
     implementation("io.github.funkatronics:multimult:0.2.3")
     implementation("com.ditchoom:buffer:1.4.2") // or latest
     implementation("io.github.funkatronics:kborsh:0.1.1")
+    implementation("io.github.funkatronics:kborsh-jvm:0.1.1")
+
+//implementation("com.ditchoom:borshjvm:x.y.z") // the borsh lib you’re using
+
 
 
 

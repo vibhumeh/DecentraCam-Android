@@ -17,12 +17,14 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import com.funkatronics.encoders.Base58
-
 import java.util.*
 import org.json.JSONArray
 import android.content.Context
 import diglol.crypto.Ed25519
 import com.solana.signer.Ed25519Signer
+import java.nio.ByteBuffer
+import java.security.MessageDigest
+import java.nio.ByteOrder
 
 //loading privatekey
 fun loadKeyFromJsonRaw(context: Context, rawId: Int): UByteArray {
@@ -78,7 +80,10 @@ private const val APP_NAME     = "Decentracam"
 
 
 
-
+private fun anchorDisc(ixName: String): ByteArray =
+    MessageDigest.getInstance("SHA-256")
+        .digest("global:$ixName".toByteArray())
+        .copyOfRange(0, 8)
 /* ---------- helper to fetch a recent blockhash ---------- */
 
 private suspend fun Rpc20Driver.latestBlockhash(): String {
@@ -99,19 +104,31 @@ private suspend fun Rpc20Driver.latestBlockhash(): String {
 
 }
 //TRANSACTION BUILDERS
-
+@Serializable
+object NoArgs
 suspend fun buildVerifyIx(
     feePayer: SolanaPublicKey,
     counterPda: SolanaPublicKey,
     message: ByteArray,
     signature: ByteArray
 ): TransactionInstruction {
+    System.setProperty("buffer.factory.jvm", "com.ditchoom.buffer.DefaultJvmBufferFactory")
 
     /* Anchor-encode args */
-    val data = Borsh.encodeToByteArray(
-        AnchorInstructionSerializer("verifyEd25519Instruction"),
-        Args_verifyEd25519Instruction(message, signature)
-    )
+//    val data = Borsh.encodeToByteArray(
+//        AnchorInstructionSerializer<Args_verifyEd25519Instruction>("verifyEd25519Instruction"),
+//        Args_verifyEd25519Instruction(message, signature)
+//    )
+
+    val buf = ByteBuffer
+        .allocate(8 + 4 + message.size + 4 + signature.size)
+        .order(ByteOrder.LITTLE_ENDIAN)
+
+    buf.put(anchorDisc("verify_ed25519_instruction"))
+    buf.putInt(message.size)
+    buf.put(message)
+    buf.putInt(signature.size)
+    buf.put(signature)
 
     val programId = SolanaPublicKey.from(PROGRAM_ID_STR)
     val instructionSysvar =
@@ -124,7 +141,7 @@ suspend fun buildVerifyIx(
             AccountMeta(instructionSysvar, false, false),
             AccountMeta(counterPda, false, true)    // counter
         ),
-        data
+        buf.array()
     )
 }
 
@@ -172,8 +189,8 @@ suspend fun buildStoreHashIx(
 
 ////FINAL FUNCTIONS
 /* ---------- do the initialize in one go ---------- */
-@Serializable
-object NoArgs //Not inside a function
+//@Serializable
+//object NoArgs //Not inside a function
 
 fun initialiseAccount(
     lifecycleScope: LifecycleCoroutineScope,
