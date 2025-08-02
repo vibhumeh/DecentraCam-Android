@@ -302,3 +302,73 @@ lifecycleScope.launch {
 
 
 }
+fun authenticate_verification(
+    lifecycleScope: LifecycleCoroutineScope,
+    wallet: MobileWalletAdapter,
+    sender: ActivityResultSender,
+    message: ByteArray,
+    context: Context
+) {
+    val rpc = Rpc20Driver(RPC_URL, KtorHttpDriver())
+
+    lifecycleScope.launch {
+        /* 1. Connect to the wallet and grab the fee‑payer pubkey */
+        val auth = wallet.connect(sender) as? TransactionResult.Success
+            ?: error("wallet connect failed / cancelled")
+        val feePayer = SolanaPublicKey.from(Base58.encodeToString( auth.authResult.accounts.first().publicKey))
+        val secretKey = loadKeyFromJsonRaw(context, R.raw.auth_privkey_temp).toByteArray().sliceArray(0 until 32)//extract seed from privatekey
+
+        val publicKey = loadKeyFromJsonRaw(context, R.raw.auth_pubkey_temp)
+        val keyPair=Ed25519.generateKeyPair(secretKey)
+        val signer = object : Ed25519Signer() {
+            override val publicKey: ByteArray get() = keyPair.publicKey
+            override suspend fun signPayload(payload: ByteArray): ByteArray = Ed25519.sign(keyPair, payload)
+        }
+        val sig = signer.signPayload(message)
+
+// --- 0.  Program + PDA as before ---
+        val programId  = SolanaPublicKey.from(PROGRAM_ID_STR)
+        val counterPda = ProgramDerivedAddress.find(
+            listOf("counter".encodeToByteArray(), feePayer.bytes),
+            programId
+        ).getOrThrow()
+
+        // --- 1. Anchor discriminator only (Initialize has no args) ---
+
+
+// --- 2.   **Accounts in exact Rust order** ---
+        val ix = buildVerifyIx(feePayer=feePayer,counterPda = counterPda, message = message , signature = sig)
+
+        /* 5. Build, ask wallet to sign & send */
+        val blockhash = rpc.latestBlockhash()
+        val msg = Message.Builder()
+            .addInstruction(ix)
+            .setRecentBlockhash(blockhash)
+            //.setFeePayer(feePayer)
+            .build()
+        val unsignedTx = Transaction(msg).serialize()
+
+        val result = wallet.transact(sender) {
+            reauthorize(
+                identityUri = Uri.parse(IDENTITY_URI),
+                iconUri = Uri.parse(ICON_URI),
+                identityName = APP_NAME,
+                authToken = auth.authResult.authToken
+            )
+//            val simResp = rpc.simulateTransaction(unsignedTx)   // helper you write once
+//            Log.d("SIM", simResp.logs.joinToString("\n"))
+
+            signAndSendTransactions(arrayOf(unsignedTx))
+        }
+
+        when (result) {
+            is TransactionResult.Success -> Log.d("Auth Verification", "sig $result")
+            is TransactionResult.Failure -> {
+                Log.e("Auth Verification", "Tx failed: ${result.e.message}")
+                return@launch              // don’t throw, just exit coroutine
+            }
+
+            else -> error("wallet flow aborted")
+        }
+    }
+}
