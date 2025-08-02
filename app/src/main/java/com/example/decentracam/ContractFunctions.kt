@@ -20,11 +20,15 @@ import com.funkatronics.encoders.Base58
 import java.util.*
 import org.json.JSONArray
 import android.content.Context
+import com.ditchoom.buffer.toArray
 import diglol.crypto.Ed25519
 import com.solana.signer.Ed25519Signer
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.nio.ByteOrder
+import io.ktor.client.*
+import com.solana.networking.HttpNetworkDriver
+import com.solana.networking.HttpRequest
 
 //loading privatekey
 fun loadKeyFromJsonRaw(context: Context, rawId: Int): UByteArray {
@@ -157,7 +161,7 @@ suspend fun buildStoreHashIx(
 
     val programId = SolanaPublicKey.from(PROGRAM_ID_STR)
 
-    /* derive hashes PDA = ["hash", signer, hashId] */
+    /* 1. derive hashes PDA = ["hash", signer, hashId_le] */
     val hashesPda = ProgramDerivedAddress.find(
         listOf(
             "hash".encodeToByteArray(),
@@ -167,22 +171,27 @@ suspend fun buildStoreHashIx(
         programId
     ).getOrThrow()
 
-    val data = Borsh.encodeToByteArray(
-        AnchorInstructionSerializer("storeHash"),
-        Args_storeHash(hashId)
-    )
+    /* 2. instruction data = discriminator + hash_id (u64 LE) */
+    val data = ByteBuffer
+        .allocate(16)                        // 8 + 8
+        .order(ByteOrder.LITTLE_ENDIAN)
+        .put(anchorDisc("store_hash"))
+        .putLong(hashId.toLong())           // LE because of order() above
+        .array()
 
+    /* 3. build ix — account order must match Rust struct */
     return TransactionInstruction(
         programId,
         listOf(
             AccountMeta(feePayer,  true,  true),   // signer
-            AccountMeta(hashesPda, false, true),  // init account
-            AccountMeta(counterPda, false, true), // counter
+            AccountMeta(hashesPda, false, true),   // new Hashes PDA
+            AccountMeta(counterPda, false, true),  // existing Counter PDA
             AccountMeta(SystemProgram.PROGRAM_ID, false, false)
         ),
         data
     )
 }
+
 
 
 
@@ -319,7 +328,7 @@ lifecycleScope.launch {
 
 
 }
-fun authenticate_verification(
+fun authVerification(
     lifecycleScope: LifecycleCoroutineScope,
     wallet: MobileWalletAdapter,
     sender: ActivityResultSender,
@@ -382,6 +391,181 @@ fun authenticate_verification(
             is TransactionResult.Success -> Log.d("Auth Verification", "sig $result")
             is TransactionResult.Failure -> {
                 Log.e("Auth Verification", "Tx failed: ${result.e.message}")
+                return@launch              // don’t throw, just exit coroutine
+            }
+
+            else -> error("wallet flow aborted")
+        }
+    }
+}
+
+
+
+fun storeHash(
+    lifecycleScope: LifecycleCoroutineScope,
+    wallet: MobileWalletAdapter,
+    sender: ActivityResultSender,
+    hashId: Int//converted to Ulong afterwards
+) {
+    val rpc = Rpc20Driver(RPC_URL, KtorHttpDriver())
+
+    lifecycleScope.launch {
+        /* 1. Connect to the wallet and grab the fee‑payer pubkey */
+        val auth = wallet.connect(sender) as? TransactionResult.Success
+            ?: error("wallet connect failed / cancelled")
+        val feePayer = SolanaPublicKey.from(Base58.encodeToString( auth.authResult.accounts.first().publicKey))
+
+// --- 0.  Program + PDA as before ---
+        val programId  = SolanaPublicKey.from(PROGRAM_ID_STR)
+        val counterPda = ProgramDerivedAddress.find(
+            listOf("counter".encodeToByteArray(), feePayer.bytes),
+            programId
+        ).getOrThrow()
+
+        // --- 1. Anchor discriminator only (Initialize has no args) ---
+// --- 2.   **Accounts in exact Rust order** ---
+        val ix = buildStoreHashIx(feePayer=feePayer, counterPda = counterPda, hashId = hashId.toULong())
+
+        /* 5. Build, ask wallet to sign & send */
+        val blockhash = rpc.latestBlockhash()
+        val msg = Message.Builder()
+            .addInstruction(ix)
+            .setRecentBlockhash(blockhash)
+            //.setFeePayer(feePayer)
+            .build()
+        val unsignedTx = Transaction(msg).serialize()
+
+        val result = wallet.transact(sender) {
+            reauthorize(
+                identityUri = Uri.parse(IDENTITY_URI),
+                iconUri = Uri.parse(ICON_URI),
+                identityName = APP_NAME,
+                authToken = auth.authResult.authToken
+            )
+//            val simResp = rpc.simulateTransaction(unsignedTx)   // helper you write once
+//            Log.d("SIM", simResp.logs.joinToString("\n"))
+            val txBytes = Transaction(msg).serialize()
+
+            val sim = rpc.simulateTransaction(txBytes)
+
+            if (sim?.err != null) {
+                Log.e("SIMULATION RESULT", "Program error: ${sim.err}")
+            }
+            sim?.logs?.forEach { Log.d("SIMULATION RESULT", it) }
+            Log.d("SIMULATION RESULT", "CAT")
+            signAndSendTransactions(arrayOf(unsignedTx))
+        }
+
+        when (result) {
+            is TransactionResult.Success -> Log.d("Auth Verification", "sig $result")
+            is TransactionResult.Failure -> {
+                Log.e("Auth Verification", "Tx failed: ${result.e.message}")
+                return@launch              // don’t throw, just exit coroutine
+            }
+
+            else -> error("wallet flow aborted")
+        }
+    }
+}
+
+
+
+fun submitHashBundle(
+    context: Context,
+    lifecycleScope: LifecycleCoroutineScope,
+    wallet: MobileWalletAdapter,
+    sender: ActivityResultSender,
+    // 32-byte SHA-256 hex of your image
+    message: ByteArray,
+    // counter.hash_id you expect (starts at 1)
+    hashId: ULong,
+    // resource IDs of your keys in res/raw
+    runSimFirst: Boolean = true            // set false in production
+) {
+    lifecycleScope.launch {
+        /* 0. connect to wallet → fee payer */
+        val auth = wallet.connect(sender) as? TransactionResult.Success
+            ?: error("wallet connect cancelled")
+        val feePayer = SolanaPublicKey.from(Base58.encodeToString( auth.authResult.accounts.first().publicKey))
+
+        /* 1. RPC driver */
+        val rpc = Rpc20Driver("https://api.devnet.solana.com", KtorHttpDriver())
+
+        /* 2. derive counter PDA */
+        val programId = SolanaPublicKey.from(PROGRAM_ID_STR)
+        val counterPda = ProgramDerivedAddress.find(
+            listOf("counter".encodeToByteArray(), feePayer.bytes),
+            programId
+        ).getOrThrow()
+
+        /* 3. load keys & sign message */
+        val secretKey = loadKeyFromJsonRaw(context, R.raw.auth_privkey_temp).toByteArray().sliceArray(0 until 32)//extract seed from privatekey
+
+        val publicKey = loadKeyFromJsonRaw(context, R.raw.auth_pubkey_temp)
+        val keyPair=Ed25519.generateKeyPair(secretKey)
+        val signer = object : Ed25519Signer() {
+            override val publicKey: ByteArray get() = keyPair.publicKey
+            override suspend fun signPayload(payload: ByteArray): ByteArray = Ed25519.sign(keyPair, payload)
+        }
+        val signature = signer.signPayload(message)
+
+        /* 4. build three instructions in correct order */
+        val edIx = buildEd25519IxWithPublicKey(
+            publicKey = publicKey.toByteArray(),
+            message = message,
+            signature = signature,
+            feePayer = feePayer,          // only needed for discriminator calc
+            instructionIndex = null       // 0xFFFF = “this instruction”
+        )
+
+        val verifyIx = buildVerifyIx(
+            feePayer = feePayer,
+            counterPda = counterPda,
+            message = message,
+            signature = signature
+        )
+
+        val storeIx = buildStoreHashIx(
+            feePayer = feePayer,
+            counterPda = counterPda,
+            hashId = hashId
+        )
+
+        /* 5. build bundled tx */
+        val recentBlockhash = rpc.latestBlockhash()
+        val msg = Message.Builder()
+            //.setFeePayer(feePayer)
+            .setRecentBlockhash(recentBlockhash)
+            .addInstruction(edIx)       // 1️⃣ native ed25519 verify
+            .addInstruction(verifyIx)   // 2️⃣ your program’s verify
+            .addInstruction(storeIx)    // 3️⃣ store hash
+            .build()
+        val txBytes = Transaction(msg).serialize()
+
+        /* 6. optional simulation */
+        if (runSimFirst) {
+            val sim = rpc.simulateTransaction(txBytes)
+            sim?.logs?.forEach { Log.d("SIM", it) }
+            sim?.err?.let { error("Sim failed: $it") }
+        }
+
+        /* 7. hand to wallet */
+        val result = wallet.transact(sender) {
+            reauthorize(
+                identityUri = Uri.parse(IDENTITY_URI),
+                iconUri = Uri.parse(ICON_URI),
+                identityName = APP_NAME,
+                authToken = auth.authResult.authToken
+            )
+            signAndSendTransactions(arrayOf(txBytes))
+        }
+
+        when (result) {
+            is TransactionResult.Success -> {Log.d("Auth Verification", "sig ${result.payload.signatures}")
+
+            }
+            is TransactionResult.Failure -> {
+                Log.e("Overall", "Tx failed: ${result.e.message}")
                 return@launch              // don’t throw, just exit coroutine
             }
 

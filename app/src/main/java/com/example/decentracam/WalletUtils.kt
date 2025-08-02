@@ -30,6 +30,13 @@ import com.solana.mobilewalletadapter.clientlib.MobileWalletAdapter
 import com.solana.mobilewalletadapter.clientlib.TransactionResult
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.launch
+import android.util.Base64
+import io.ktor.http.*
+import kotlinx.serialization.json.*
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
 class KtorHttpDriver : HttpNetworkDriver {
     private val client = HttpClient(CIO)
 
@@ -273,7 +280,95 @@ fun sendSolNew(lifecycleScope: LifecycleCoroutineScope,walletAdapter: MobileWall
     }
 
 
+/* ----------- response models ---------- */
+@Serializable
+data class SimResultValue(
+    val err: JsonElement? = null, // Can be null or an object
+    val logs: List<String>? = null,
+    val accounts: JsonElement? = null,
+    val innerInstructions: JsonElement? = null,
+    val loadedAccountsDataSize: Long? = null,
+    val replacementBlockhash: ReplacementBlockhash? = null,
+    val returnData: JsonElement? = null,
+    val unitsConsumed: Int? = null
+)
 
+@Serializable
+data class ReplacementBlockhash(
+    val blockhash: String,
+    val lastValidBlockHeight: Long
+)
+
+@Serializable
+data class SimResultWrapper(
+    val value: SimResultValue?=null
+)
+
+
+
+
+/* ----------- extension on Rpc20Driver ---------- */
+
+suspend fun makeRequestRaw(
+    client: HttpClient,
+    url: String,
+    req: JsonObject
+): JsonObject {
+    val response: HttpResponse = client.post(url) {
+        contentType(ContentType.Application.Json)
+        setBody(req.toString())
+    }
+
+    val text = response.bodyAsText()
+    return Json.parseToJsonElement(text).jsonObject
+}
+fun JsonRpc20Request.toJson(): JsonObject = buildJsonObject {
+    put("jsonrpc", JsonPrimitive("2.0"))
+    put("id", JsonPrimitive(this@toJson.id))
+    put("method", JsonPrimitive(this@toJson.method))
+    put("params", this@toJson.params ?: JsonNull)
+
+}
+suspend fun Rpc20Driver.simulateTransaction(
+    txBytes: ByteArray,
+    commitment: String = "processed"   // same default as web3.js
+): SimResultValue? {
+
+    val b64 = Base64.encodeToString(txBytes, Base64.NO_WRAP)
+
+    val req = JsonRpc20Request(
+        id = UUID.randomUUID().toString(),
+        method = "simulateTransaction",
+        params = JsonArray(
+            listOf(
+                JsonPrimitive(b64),
+                JsonObject(
+                    mapOf(
+                        "encoding"   to JsonPrimitive("base64"),
+                        "commitment" to JsonPrimitive(commitment),
+                        // skip signature verif for speed – wallet does it anyway later
+                        "sigVerify"  to JsonPrimitive(false)
+                    )
+                )
+            )
+        )
+    )
+
+    val resp: Rpc20Response<SolanaResponse<SimResultWrapper>> =
+        makeRequest(
+            req,
+            SolanaResponse.serializer(SimResultWrapper.serializer())
+        )
+    val rawResp = makeRequestRaw(HttpClient(), "https://api.devnet.solana.com", req.toJson())
+    Log.d("SIM_RAW", rawResp.toString())
+
+
+
+
+    resp.error?.let { throw RuntimeException("simulateTransaction RPC error ${it.code}: ${it.message}") }
+    val value=resp.result?.value?.value
+    return value//resp.result?.value
+}
 
 
 

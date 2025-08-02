@@ -141,7 +141,10 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             //initialiseAccount(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender)
                             //verify_sig(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity)
-                            authenticate_verification(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity)
+                            //authVerification(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity)
+                            val hashId=1
+                            //storeHash(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,hashId=hashId)
+
                         //connectAndSign(hash.hexToBytes())
                         }
                         // plug in wallet next
