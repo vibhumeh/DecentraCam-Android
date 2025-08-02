@@ -334,7 +334,7 @@ fun authVerification(
     sender: ActivityResultSender,
     message: ByteArray,
     context: Context
-) {
+){
     val rpc = Rpc20Driver(RPC_URL, KtorHttpDriver())
 
     lifecycleScope.launch {
@@ -480,7 +480,8 @@ fun submitHashBundle(
     // counter.hash_id you expect (starts at 1)
     hashId: ULong,
     // resource IDs of your keys in res/raw
-    runSimFirst: Boolean = true            // set false in production
+    runSimFirst: Boolean = true,         // set false in production
+    callback: (Boolean) -> Unit
 ) {
     lifecycleScope.launch {
         /* 0. connect to wallet → fee payer */
@@ -562,14 +563,19 @@ fun submitHashBundle(
 
         when (result) {
             is TransactionResult.Success -> {Log.d("Auth Verification", "sig ${result.payload.signatures}")
-
+            callback(true)
             }
             is TransactionResult.Failure -> {
                 Log.e("Overall", "Tx failed: ${result.e.message}")
+                callback(false)
                 return@launch              // don’t throw, just exit coroutine
+
             }
 
-            else -> error("wallet flow aborted")
+            else ->{ error("wallet flow aborted")
+                callback(false)
+
+            }
         }
     }
 }

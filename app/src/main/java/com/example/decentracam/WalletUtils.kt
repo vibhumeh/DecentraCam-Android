@@ -33,7 +33,8 @@ import kotlinx.coroutines.launch
 import android.util.Base64
 import io.ktor.http.*
 import kotlinx.serialization.json.*
-
+import android.content.Context
+import android.content.SharedPreferences
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -369,6 +370,15 @@ suspend fun Rpc20Driver.simulateTransaction(
     val value=resp.result?.value?.value
     return value//resp.result?.value
 }
+fun saveCounter(context: Context, value: Int) {
+    val prefs = context.getSharedPreferences("my_prefs", Context.MODE_PRIVATE)
+    prefs.edit().putInt("counter", value).apply()
+}
+fun loadCounter(context: Context): Int {
+    val prefs = context.getSharedPreferences("my_prefs", Context.MODE_PRIVATE)
+    return prefs.getInt("counter", 1)
+}
+
 
 
 

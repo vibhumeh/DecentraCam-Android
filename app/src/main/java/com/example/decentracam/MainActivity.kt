@@ -142,10 +142,19 @@ class MainActivity : ComponentActivity() {
                             //initialiseAccount(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender)
                             //verify_sig(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity)
                             //authVerification(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity)
-                            val hashId=1
+                            val hashId= 4 //this is where counter is currently at. saveCounter is not working so keep updating
                             //storeHash(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,hashId=hashId)
 
-                        //connectAndSign(hash.hexToBytes())
+                            submitHashBundle(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity, hashId = hashId.toULong()){ success ->
+                                if (success){ Log.d("Result", "Success!")
+                                val next=hashId+1
+                                    Log.d("HashID=", "current saved hashID= $next")
+                                    saveCounter(this@MainActivity,next)
+                                }
+                                else Log.d("Result", "Failed.")//this gets called even when transaction works
+                            }
+
+                            //connectAndSign(hash.hexToBytes())
                         }
                         // plug in wallet next
 
