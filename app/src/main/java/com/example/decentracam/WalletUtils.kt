@@ -1,4 +1,4 @@
-package com.example.decentracam // match your package name
+package com.example.decentracam
 
 import android.util.Log
 import androidx.lifecycle.LifecycleCoroutineScope
@@ -34,8 +34,6 @@ import android.util.Base64
 import io.ktor.http.*
 import kotlinx.serialization.json.*
 import android.content.Context
-import android.content.SharedPreferences
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 class KtorHttpDriver : HttpNetworkDriver {
@@ -377,6 +375,14 @@ fun saveCounter(context: Context, value: Int) {
 fun loadCounter(context: Context): Int {
     val prefs = context.getSharedPreferences("my_prefs", Context.MODE_PRIVATE)
     return prefs.getInt("counter", 1)
+}
+fun saveInit(context: Context, value: Boolean) {
+    val prefs = context.getSharedPreferences("init_prefs", Context.MODE_PRIVATE)
+    prefs.edit().putBoolean("init_required", value).apply()
+}
+fun loadInit(context: Context): Boolean {
+    val prefs = context.getSharedPreferences("init_prefs", Context.MODE_PRIVATE)
+    return prefs.getBoolean("init_required", true)
 }
 
 

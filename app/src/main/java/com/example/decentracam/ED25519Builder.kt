@@ -60,7 +60,6 @@ fun buildEd25519IxWithPublicKey(
 
     return TransactionInstruction(
         ED25519_PROG_ID,
-        //emptyList<AccountMeta>(),   // native program uses no accounts
         listOf(
             AccountMeta(feePayer,    true,  true),   // signer)
         ),

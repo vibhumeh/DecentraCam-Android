@@ -35,6 +35,18 @@ class MainActivity : ComponentActivity() {
         val iconUri = Uri.parse("packages/wallet-adapter/example/favicon.png")
         val identityName = "DecentraCam"
 
+
+        //********************************//
+
+
+
+        val starting_hash=5//for testing set to 5 . set to 1 when starting.
+        saveCounter(this@MainActivity,starting_hash)
+        val init_required= loadInit(this@MainActivity) //note to self: set to false for testing.
+
+
+
+        //********************************//
         //Construct the client
         val walletAdapter = MobileWalletAdapter(connectionIdentity = ConnectionIdentity(
             identityUri = solanaUri,
@@ -48,21 +60,6 @@ class MainActivity : ComponentActivity() {
 
         val sender = ActivityResultSender(this)
 
-//        fun connectOnly() {
-//            lifecycleScope.launch {
-//                val result = walletAdapter.connect(sender)
-//
-//                when (result) {
-//                    is TransactionResult.Success -> {
-//                        val account = result.authResult.accounts.first()
-//                        authToken = result.authResult.authToken // 🔥 Save it globally
-//                        Log.d("WALLET", "Connected: ${account.publicKey}, Token: $authToken")
-//                    }
-//                    else -> Log.e("WALLET", "Connect failed")
-//                }
-//            }
-//        }
-       // connectOnly(lifecycleScope, walletAdapter, sender)
         lifecycleScope.launch {
             try {
                 val blockhash = getLatestBlockhash()
@@ -70,7 +67,14 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 Log.e("RPC", "Failed to fetch blockhash: ${e.message}")
             }
-
+            if (init_required) {
+                initialiseAccount(
+                    lifecycleScope = lifecycleScope,
+                    wallet = walletAdapter,
+                    sender = sender
+                )
+                saveInit(this@MainActivity,false)//resets init requirment
+            }
         }
         Log.d("WALLET", "Connected 2, Token: $authToken")
 
@@ -139,22 +143,21 @@ class MainActivity : ComponentActivity() {
 
 
                         lifecycleScope.launch {
-                            //initialiseAccount(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender)
-                            //verify_sig(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity)
-                            //authVerification(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity)
-                            val hashId= 4 //this is where counter is currently at. saveCounter is not working so keep updating
+
+                            val hashId= loadCounter(this@MainActivity)//5 //this is where counter is currently at. saveCounter is not working so keep updating
                             //storeHash(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,hashId=hashId)
 
                             submitHashBundle(lifecycleScope = lifecycleScope,wallet=walletAdapter,sender=sender,message=hash.toByteArray(), context = this@MainActivity, hashId = hashId.toULong()){ success ->
                                 if (success){ Log.d("Result", "Success!")
-                                val next=hashId+1
-                                    Log.d("HashID=", "current saved hashID= $next")
-                                    saveCounter(this@MainActivity,next)
+
                                 }
                                 else Log.d("Result", "Failed.")//this gets called even when transaction works
                             }
+                            val next=hashId+1
+                            Log.d("HashID=", "current saved hashID= $next")
+                            saveCounter(this@MainActivity,next)
 
-                            //connectAndSign(hash.hexToBytes())
+
                         }
                         // plug in wallet next
 

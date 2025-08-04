@@ -20,15 +20,11 @@ import com.funkatronics.encoders.Base58
 import java.util.*
 import org.json.JSONArray
 import android.content.Context
-import com.ditchoom.buffer.toArray
 import diglol.crypto.Ed25519
 import com.solana.signer.Ed25519Signer
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.nio.ByteOrder
-import io.ktor.client.*
-import com.solana.networking.HttpNetworkDriver
-import com.solana.networking.HttpRequest
 
 //loading privatekey
 fun loadKeyFromJsonRaw(context: Context, rawId: Int): UByteArray {
