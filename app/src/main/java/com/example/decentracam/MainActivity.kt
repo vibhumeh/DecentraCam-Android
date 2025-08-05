@@ -40,8 +40,8 @@ class MainActivity : ComponentActivity() {
 
 
 
-        val starting_hash=5//for testing set to 5 . set to 1 when starting.
-        saveCounter(this@MainActivity,starting_hash)
+        //val starting_hash=5//for testing set to 5 . defult set to 1 when starting normally.
+        //saveCounter(this@MainActivity,starting_hash)
         val init_required= loadInit(this@MainActivity) //note to self: set to false for testing.
 
 
